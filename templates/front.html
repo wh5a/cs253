@@ -2,6 +2,9 @@
 
 {% block content %}
 
+  <div class="new-post">
+    <a href="/blog/newpost"> New Post</a>
+  </div>
   {% for p in posts %}
     {{ p.render() | safe }}
     <br><br>

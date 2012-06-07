@@ -15,6 +15,9 @@ def render_str(template, **params):
     t = jinja_env.get_template(template)
     return t.render(params)
 
+def blog_key(name = 'default'):
+    return db.Key.from_path('blogs', name)
+
 class BlogHandler(webapp2.RequestHandler):
     def write(self, *a, **kw):
         self.response.out.write(*a, **kw)
@@ -25,6 +28,13 @@ class BlogHandler(webapp2.RequestHandler):
     def render(self, template, **kw):
         self.write(self.render_str(template, **kw))
 
+    def getPost(self, post_id):
+        key = db.Key.from_path('Post', int(post_id), parent=blog_key())
+        post = db.get(key)
+        if not post:
+            self.abort(404)
+        return post
+
 def render_post(response, post):
     response.out.write('<b>' + post.subject + '</b><br>')
     response.out.write(post.content)
@@ -34,9 +44,6 @@ class MainPage(BlogHandler):
       self.render('index.html')
 
 ##### blog stuff
-
-def blog_key(name = 'default'):
-    return db.Key.from_path('blogs', name)
 
 class Post(db.Model):
     subject = db.StringProperty(required = True)
@@ -55,14 +62,40 @@ class BlogFront(BlogHandler):
 
 class PostPage(BlogHandler):
     def get(self, post_id):
-        key = db.Key.from_path('Post', int(post_id), parent=blog_key())
-        post = db.get(key)
-
-        if not post:
-            self.error(404)
-            return
-
+        post = self.getPost(post_id)
         self.render("permalink.html", post = post)
+
+    def post(self, post_id):
+        post = self.getPost(post_id)
+        is_edit = self.request.get('edit')
+        is_delete = self.request.get('delete')
+        if is_delete:
+           db.delete(post.key())
+           self.redirect('/blog')
+        elif is_edit:
+           self.redirect(self.uri_for('edit', post_id = post_id))
+        else:
+           self.error(404)
+
+
+class EditPostPage(BlogHandler):
+    def get(self, post_id):
+        post = self.getPost(post_id)
+        self.render("newpost.html", subject=post.subject, content=post.content)
+
+    def post(self, post_id):
+        post = self.getPost(post_id)
+        subject = self.request.get('subject')
+        content = self.request.get('content')
+        if subject and content:
+            post.subject = subject
+            post.content = content
+            post.put()
+            self.redirect(self.uri_for('post', post_id = post_id))
+        else:
+            error = "subject and content, please!"
+            self.render("newpost.html", subject=subject, content=content, error=error)
+
 
 class NewPost(BlogHandler):
     def get(self):
@@ -75,7 +108,7 @@ class NewPost(BlogHandler):
         if subject and content:
             p = Post(parent = blog_key(), subject = subject, content = content)
             p.put()
-            self.redirect('/blog/%s' % str(p.key().id()))
+            self.redirect(self.uri_for('post', post_id = str(p.key().id())))
         else:
             error = "subject and content, please!"
             self.render("newpost.html", subject=subject, content=content, error=error)
@@ -156,7 +189,9 @@ app = webapp2.WSGIApplication([('/', MainPage),
                                ('/unit2/signup', Signup),
                                ('/unit2/welcome', Welcome),
                                ('/blog/?', BlogFront),
-                               ('/blog/([0-9]+)', PostPage),
+#                               ('/blog/(\d+)/?', PostPage),
+                               webapp2.Route('/blog/<post_id:\d+>', handler=PostPage, name='post'),
+                               webapp2.Route('/blog/<post_id:\d+>/edit', handler=EditPostPage, name='edit'),
                                ('/blog/newpost', NewPost),
                                ],
                               debug=True)
