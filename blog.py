@@ -43,8 +43,6 @@ class MainPage(BlogHandler):
   def get(self):
       self.render('index.html')
 
-##### blog stuff
-
 class Post(db.Model):
     subject = db.StringProperty(required = True)
     content = db.TextProperty(required = True)
@@ -77,7 +75,6 @@ class PostPage(BlogHandler):
         else:
            self.error(404)
 
-
 class EditPostPage(BlogHandler):
     def get(self, post_id):
         post = self.getPost(post_id)
@@ -96,7 +93,6 @@ class EditPostPage(BlogHandler):
             error = "subject and content, please!"
             self.render("newpost.html", subject=subject, content=content, error=error)
 
-
 class NewPost(BlogHandler):
     def get(self):
         self.render("newpost.html")
@@ -113,22 +109,6 @@ class NewPost(BlogHandler):
             error = "subject and content, please!"
             self.render("newpost.html", subject=subject, content=content, error=error)
 
-
-
-###### Unit 2 HW's
-class Rot13(BlogHandler):
-    def get(self):
-        self.render('rot13-form.html')
-
-    def post(self):
-        rot13 = ''
-        text = self.request.get('text')
-        if text:
-            rot13 = text.encode('rot13')
-
-        self.render('rot13-form.html', text = rot13)
-
-
 USER_RE = re.compile(r"^[a-zA-Z0-9_-]{3,20}$")
 def valid_username(username):
     return username and USER_RE.match(username)
@@ -142,7 +122,6 @@ def valid_email(email):
     return not email or EMAIL_RE.match(email)
 
 class Signup(BlogHandler):
-
     def get(self):
         self.render("signup-form.html")
 
@@ -185,7 +164,6 @@ class Welcome(BlogHandler):
             self.redirect('/unit2/signup')
 
 app = webapp2.WSGIApplication([('/', MainPage),
-                               ('/unit2/rot13', Rot13),
                                ('/unit2/signup', Signup),
                                ('/unit2/welcome', Welcome),
                                ('/blog/?', BlogFront),
