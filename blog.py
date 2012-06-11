@@ -144,6 +144,8 @@ class PostPage(BlogHandler):
         self.render("permalink.html", post = post)
 
     def post(self, post_id):
+        if not self.user:
+            self.redirect('/blog')
         post = self.getPost(post_id)
         is_edit = self.request.get('edit')
         is_delete = self.request.get('delete')
@@ -157,10 +159,15 @@ class PostPage(BlogHandler):
 
 class EditPostPage(BlogHandler):
     def get(self, post_id):
-        post = self.getPost(post_id)
-        self.render("newpost.html", subject=post.subject, content=post.content)
+        if self.user:
+           post = self.getPost(post_id)
+           self.render("newpost.html", subject=post.subject, content=post.content)
+        else:
+           self.redirect("/login")
 
     def post(self, post_id):
+        if not self.user:
+            self.redirect('/blog')
         post = self.getPost(post_id)
         subject = self.request.get('subject')
         content = self.request.get('content')

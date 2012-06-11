@@ -2,9 +2,11 @@
 
 {% block content %}
   {{post.render() | safe}}
-  <br>
-  <form method="post">
-    <input type="submit" name="edit" value="Edit">
-    <input type="submit" name="delete" value="Delete">
-  </form>
+    {% if user %}
+      <br>
+      <form method="post">
+            <input type="submit" name="edit" value="Edit">
+            <input type="submit" name="delete" value="Delete">
+      </form>
+    {% endif %}
 {% endblock %}
