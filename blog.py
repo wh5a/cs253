@@ -1,5 +1,8 @@
 import os
 import re
+import random
+import hashlib
+import hmac
 from string import letters
 
 import webapp2
@@ -11,9 +14,19 @@ template_dir = os.path.join(os.path.dirname(__file__), 'templates')
 jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir),
                                autoescape = True)
 
+secret = 'fart'
+
 def render_str(template, **params):
     t = jinja_env.get_template(template)
     return t.render(params)
+
+def make_secure_val(val):
+    return '%s|%s' % (val, hmac.new(secret, val).hexdigest())
+
+def check_secure_val(secure_val):
+    val = secure_val.split('|')[0]
+    if secure_val == make_secure_val(val):
+        return val
 
 def blog_key(name = 'default'):
     return db.Key.from_path('blogs', name)
@@ -23,17 +36,84 @@ class BlogHandler(webapp2.RequestHandler):
         self.response.out.write(*a, **kw)
 
     def render_str(self, template, **params):
+        params['user'] = self.user
         return render_str(template, **params)
 
     def render(self, template, **kw):
         self.write(self.render_str(template, **kw))
 
+    def set_secure_cookie(self, name, val):
+        cookie_val = make_secure_val(val)
+        self.response.set_cookie(name, cookie_val) # Setting secure=True causes problems for local testing
+        # self.response.headers.add_header(
+        #     'Set-Cookie',
+        #     '%s=%s; Path=/' % (name, cookie_val))
+
+    def read_secure_cookie(self, name):
+        cookie_val = self.request.cookies.get(name)
+        return cookie_val and check_secure_val(cookie_val)
+
+    def login(self, user):
+        self.set_secure_cookie('user_id', str(user.key().id()))
+
+    def logout(self):
+       self.response.delete_cookie('user_id')
+#        self.response.headers.add_header('Set-Cookie', 'user_id=; Path=/')
+
+    def initialize(self, *a, **kw):
+        webapp2.RequestHandler.initialize(self, *a, **kw)
+        uid = self.read_secure_cookie('user_id')
+        self.user = uid and User.by_id(int(uid))
+
     def getPost(self, post_id):
-        key = db.Key.from_path('Post', int(post_id), parent=blog_key())
-        post = db.get(key)
+        post = Post.get_by_id(int(post_id), parent=blog_key())
         if not post:
             self.abort(404)
         return post
+
+def make_salt(length = 5):
+    return ''.join(random.choice(letters) for x in xrange(length))
+
+def make_pw_hash(name, pw, salt = None):
+    if not salt:
+        salt = make_salt()
+    h = hashlib.sha256(name + pw + salt).hexdigest()
+    return '%s,%s' % (salt, h)
+
+def valid_pw(name, password, h):
+    salt = h.split(',')[0]
+    return h == make_pw_hash(name, password, salt)
+
+def users_key(group = 'default'):
+    return db.Key.from_path('users', group)
+
+class User(db.Model):
+    name = db.StringProperty(required = True)
+    pw_hash = db.StringProperty(required = True)
+    email = db.StringProperty()
+
+    @classmethod
+    def by_id(cls, uid):
+        return User.get_by_id(uid, parent = users_key())
+
+    @classmethod
+    def by_name(cls, name):
+        u = User.all().filter('name =', name).get()
+        return u
+
+    @classmethod
+    def register(cls, name, pw, email = None):
+        pw_hash = make_pw_hash(name, pw)
+        return User(parent = users_key(),
+                    name = name,
+                    pw_hash = pw_hash,
+                    email = email)
+
+    @classmethod
+    def login(cls, name, pw):
+        u = cls.by_name(name)
+        if u and valid_pw(name, pw, u.pw_hash):
+            return u
 
 def render_post(response, post):
     response.out.write('<b>' + post.subject + '</b><br>')
@@ -95,9 +175,15 @@ class EditPostPage(BlogHandler):
 
 class NewPost(BlogHandler):
     def get(self):
-        self.render("newpost.html")
+        if self.user:
+            self.render("newpost.html")
+        else:
+            self.redirect("/login")
 
     def post(self):
+        if not self.user:
+            self.redirect('/blog')
+
         subject = self.request.get('subject')
         content = self.request.get('content')
 
@@ -153,19 +239,43 @@ class Signup(BlogHandler):
         if have_error:
             self.render('signup-form.html', **params)
         else:
-            self.redirect('/unit2/welcome?username=' + username)
+           #make sure the user doesn't already exist
+           u = User.by_name(username)
+           if u:
+              msg = 'That user already exists.'
+              self.render('signup-form.html', error_username = msg)
+           else:
+              u = User.register(username, password, email)
+              u.put()
 
-class Welcome(BlogHandler):
+              self.login(u)
+              self.redirect('/blog')
+
+class Login(BlogHandler):
     def get(self):
+        self.render('login-form.html')
+
+    def post(self):
         username = self.request.get('username')
-        if valid_username(username):
-            self.render('welcome.html', username = username)
+        password = self.request.get('password')
+
+        u = User.login(username, password)
+        if u:
+            self.login(u)
+            self.redirect('/blog')
         else:
-            self.redirect('/unit2/signup')
+            msg = 'Invalid login'
+            self.render('login-form.html', error = msg)
+
+class Logout(BlogHandler):
+    def get(self):
+        self.logout()
+        self.redirect('/blog')
 
 app = webapp2.WSGIApplication([('/', MainPage),
-                               ('/unit2/signup', Signup),
-                               ('/unit2/welcome', Welcome),
+                               ('/signup', Signup),
+                               ('/login', Login),
+                               ('/logout', Logout),
                                ('/blog/?', BlogFront),
 #                               ('/blog/(\d+)/?', PostPage),
                                webapp2.Route('/blog/<post_id:\d+>', handler=PostPage, name='post'),
