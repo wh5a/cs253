@@ -4,11 +4,12 @@ import random
 import hashlib
 import hmac
 from string import letters
-
 import webapp2
 import jinja2
-
 from google.appengine.ext import db
+import logging  # Call logging.error() to print messages to console
+import urllib2
+from xml.dom import minidom
 
 template_dir = os.path.join(os.path.dirname(__file__), 'templates')
 jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir),
@@ -74,6 +75,7 @@ class BlogHandler(webapp2.RequestHandler):
 def make_salt(length = 5):
     return ''.join(random.choice(letters) for x in xrange(length))
 
+# http://forums.udacity.com/cs253-april2012/questions/19776/how-to-make-bcrypt-work-with-gae
 def make_pw_hash(name, pw, salt = None):
     if not salt:
         salt = make_salt()
@@ -133,10 +135,49 @@ class Post(db.Model):
         self._render_text = self.content.replace('\n', '<br>')
         return render_str("post.html", p = self)
 
+class Coords(db.Model):
+    coords=db.GeoPtProperty(required=True)
+
+IP_URL="http://api.hostip.info/?ip="
+def get_coords(ip):
+    url=IP_URL+ip
+    content = None
+    try:
+        content=urllib2.urlopen(url).read()
+    except URLError:
+        return
+    if content:
+        d=minidom.parseString(content)
+        coords= d.getElementsByTagName("gml:coordinates")
+        if coords and coords[0].childNodes[0].nodeValue:
+            lon,lat= coords[0].childNodes[0].nodeValue.split(',')
+            return db.GeoPt(lat,lon)
+
+GMAPS_URL = "http://maps.googleapis.com/maps/api/staticmap?size=380x263&sensor=false&"
+
+def gmaps_img(points):
+    markers= '&'.join('markers=%s,%s'%(p.coords.lat,p.coords.lon) for p in points)
+    return GMAPS_URL +markers
+
 class BlogFront(BlogHandler):
     def get(self):
+        # Store each unique visitor on front page
+        coords = get_coords(self.request.remote_addr)
+        if coords:
+           q = db.Query(Coords)
+           q.filter('coords =', coords)
+           if not q.count():
+              c = Coords(coords=coords)
+              c.put()
+
+        # Map all visitors
+        img_url = None
+        points = db.GqlQuery("select * from Coords")
+        if points:
+           img_url = gmaps_img(points)
+
         posts = db.GqlQuery("select * from Post order by created desc limit 10")
-        self.render('front.html', posts = posts)
+        self.render('front.html', posts = posts, img_url = img_url)
 
 class PostPage(BlogHandler):
     def get(self, post_id):
