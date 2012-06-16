@@ -10,6 +10,7 @@ from google.appengine.ext import db
 import logging  # Call logging.error() to print messages to console
 import urllib2
 from xml.dom import minidom
+import json
 
 template_dir = os.path.join(os.path.dirname(__file__), 'templates')
 jinja_env = jinja2.Environment(loader = jinja2.FileSystemLoader(template_dir),
@@ -43,6 +44,11 @@ class BlogHandler(webapp2.RequestHandler):
     def render(self, template, **kw):
         self.write(self.render_str(template, **kw))
 
+    def render_json(self, d):
+        json_txt = json.dumps(d)
+        self.response.headers['Content-Type'] = 'application/json; charset=UTF-8'
+        self.write(json_txt)
+
     def set_secure_cookie(self, name, val):
         cookie_val = make_secure_val(val)
         self.response.set_cookie(name, cookie_val) # Setting secure=True causes problems for local testing
@@ -65,6 +71,10 @@ class BlogHandler(webapp2.RequestHandler):
         webapp2.RequestHandler.initialize(self, *a, **kw)
         uid = self.read_secure_cookie('user_id')
         self.user = uid and User.by_id(int(uid))
+        if self.request.url.endswith('.json'):
+            self.format = 'json'
+        else:
+            self.format = 'html'
 
     def getPost(self, post_id):
         post = Post.get_by_id(int(post_id), parent=blog_key())
@@ -135,6 +145,14 @@ class Post(db.Model):
         self._render_text = self.content.replace('\n', '<br>')
         return render_str("post.html", p = self)
 
+    def as_dict(self):
+        time_fmt = '%c'
+        d = {'subject': self.subject,
+             'content': self.content,
+             'created': self.created.strftime(time_fmt),
+             'last_modified': self.last_modified.strftime(time_fmt)}
+        return d
+
 class Coords(db.Model):
     coords=db.GeoPtProperty(required=True)
 
@@ -162,6 +180,7 @@ def gmaps_img(points):
 class BlogFront(BlogHandler):
     def get(self):
         # Store each unique visitor on front page
+        # To make it work on all pages, move the code to BlogHandler.initialize()
         coords = get_coords(self.request.remote_addr)
         if coords:
            q = db.Query(Coords)
@@ -170,19 +189,24 @@ class BlogFront(BlogHandler):
               c = Coords(coords=coords)
               c.put()
 
-        # Map all visitors
-        img_url = None
-        points = db.GqlQuery("select * from Coords")
-        if points:
-           img_url = gmaps_img(points)
-
+        # Now show the posts, with visitor map at the bottom.
         posts = db.GqlQuery("select * from Post order by created desc limit 10")
-        self.render('front.html', posts = posts, img_url = img_url)
+        if self.format == 'html':
+           img_url = None
+           points = db.GqlQuery("select * from Coords")
+           if points:
+              img_url = gmaps_img(points)
+           self.render('front.html', posts = posts, img_url = img_url)
+        else:
+            return self.render_json([p.as_dict() for p in posts])
 
 class PostPage(BlogHandler):
     def get(self, post_id):
         post = self.getPost(post_id)
-        self.render("permalink.html", post = post)
+        if self.format == 'html':
+            self.render("permalink.html", post = post)
+        else:
+            self.render_json(post.as_dict())
 
     def post(self, post_id):
         if not self.user:
@@ -324,9 +348,9 @@ app = webapp2.WSGIApplication([('/', MainPage),
                                ('/signup', Signup),
                                ('/login', Login),
                                ('/logout', Logout),
-                               ('/blog/?', BlogFront),
+                               ('/blog/?(?:\.json)?', BlogFront),
 #                               ('/blog/(\d+)/?', PostPage),
-                               webapp2.Route('/blog/<post_id:\d+>', handler=PostPage, name='post'),
+                               webapp2.Route('/blog/<post_id:\d+><:(\.json)?>', handler=PostPage, name='post'),
                                webapp2.Route('/blog/<post_id:\d+>/edit', handler=EditPostPage, name='edit'),
                                ('/blog/newpost', NewPost),
                                ],
