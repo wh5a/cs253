@@ -127,10 +127,6 @@ class User(db.Model):
         if u and valid_pw(name, pw, u.pw_hash):
             return u
 
-def render_post(response, post):
-    response.out.write('<b>' + post.subject + '</b><br>')
-    response.out.write(post.content)
-
 class MainPage(BlogHandler):
   def get(self):
       self.render('index.html')
@@ -344,14 +340,22 @@ class Logout(BlogHandler):
         self.logout()
         self.redirect('/blog')
 
+class Feed(BlogHandler):
+    def get(self):
+        self.response.headers['Content-Type'] = 'application/rss+xml'
+        posts = db.GqlQuery("select * from Post order by created desc limit 10")
+        self.render('rss.xml', handler=self, root='http://wei-cs253.appspot.com', posts=posts)
+
 app = webapp2.WSGIApplication([('/', MainPage),
                                ('/signup', Signup),
                                ('/login', Login),
                                ('/logout', Logout),
                                ('/blog/?(?:\.json)?', BlogFront),
 #                               ('/blog/(\d+)/?', PostPage),
-                               webapp2.Route('/blog/<post_id:\d+><:(\.json)?>', handler=PostPage, name='post'),
+                               webapp2.Route('/blog/<post_id:\d+>', handler=PostPage, name='post'),
+                               webapp2.Route('/blog/<post_id:\d+>.json', handler=PostPage),
                                webapp2.Route('/blog/<post_id:\d+>/edit', handler=EditPostPage, name='edit'),
                                ('/blog/newpost', NewPost),
+                               ('/blog/feed', Feed),
                                ],
                               debug=True)

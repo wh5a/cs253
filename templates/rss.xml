@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<rss version="2.0">
+<channel>
+        <title>CS253 RSS</title>
+        <link>{{ root }}/blog</link>
+        {%for p in posts %}
+          <item>
+            <title>{{ p.subject }}</title>
+            <link>{{ root }}{{ handler.uri_for('post', post_id=p.key().id()) }}</link>
+            <description>{{ p.content.replace('\n', '<br>') }}</description>
+          </item>
+        {%endfor%}
+</channel>
+</rss>
